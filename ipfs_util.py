@@ -40,3 +40,32 @@ def check_ipfs(ipfs_hash):
             ipfs_status.append(False)
     logging.info(f"Availability:  {ipfs_status}")
     return True
+
+def pin_ipfs(ipfs_hash):
+    """ Pins IPFS hash in Account """
+    ipfs_pin_url = f"https://ipfs.blockfrost.io/api/v0/ipfs/pin/add/{ipfs_hash}"
+    headers = {"project_id": f"{config.BLOCKFROST_IPFS}"}
+    res = requests.post(ipfs_pin_url, headers=headers)
+    res.raise_for_status()
+    if res.status_code == 200:
+        logger.info("Uploaded image to Blockfrost")
+        logger.info(res.json())
+        return res.json()
+    else:
+        logger.error("Something failed here? Upload to blockfrost failed")
+        return False
+
+
+def remove_ipfs(ipfs_hash):
+    """ Removes pin from IPFS hash in Blockfrost """
+    ipfs_remove_url = f"https://ipfs.blockfrost.io/api/v0/ipfs/pin/remove/{ipfs_hash}"
+    headers = {"project_id": f"{config.BLOCKFROST_IPFS}"}
+    res = requests.post(ipfs_remove_url, headers=headers)
+    res.raise_for_status()
+    if res.status_code == 200:
+        logging.info("Removing pin worked")
+        logging.info(res.json())
+        return True
+    else:
+        logger.error("Something failed here? Remove Pin failed")
+        return False
