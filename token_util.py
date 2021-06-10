@@ -232,3 +232,162 @@ def pre_mint(**kwargs):
     logging.info(f"Please deposit 5 ADA in the following address:")
     logging.info(token_data.bot_payment_addr)
     return True
+
+def mint(**kwargs):
+    """ Minting of the actual token """
+    # Get session:
+    session_uuid = kwargs.get('session_uuid')
+    # Start DB Session
+    session = Session()
+    logging.info(f'Minting started for {session_uuid}')
+
+    sesh_exists = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).scalar() is not None
+    if sesh_exists:
+        logging.info(f'Session Found: {session_uuid}')
+    else:
+        logging.info(f"No Session found: {session_uuid}")
+        return False
+
+    # We have data
+    token_data = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).one()
+
+    # Temporary arbitrary logic to fail tries to re-mint tokens
+    if token_data.tx_submitted:
+        logging.info(f"Session already Minted: {session_uuid}")
+        return False
+
+    # Get current slot
+    current_slot = get_current_slot()
+
+    slot_cushion = config.SLOT_CUSHION
+    invalid_after_slot = current_slot + slot_cushion
+    # Add to DB
+    token_data.current_slot = current_slot
+    token_data.slot_cushion = slot_cushion
+    token_data.invalid_after_slot = invalid_after_slot
+    session.add(token_data)
+    session.commit()
+
+    # Check to see if we have UTXO
+    utxo = check_wallet_utxo(token_data.bot_payment_addr)
+    tx_hash = utxo[0]
+    tx_ix = int(utxo[1])
+    available_lovelace = int(utxo[2])
+        if utxo:
+        # Add UTXO data to DB
+        token_data.utxo_tx_hash = utxo[0]
+        token_data.utxo_tx_ix = utxo[1]
+        token_data.utxo_lovelace = utxo[2]
+        session.add(token_data)
+        session.commit()
+
+    if available_lovelace >= 5000000:
+        # Check BlockFrost for tx details to get the return addr
+        tx_details = get_tx_details(utxo[0])
+        creator_pay_addr = tx_details['inputs'][0]['address']
+        token_data.creator_pay_addr = creator_pay_addr
+        session.add(token_data)
+        session.commit()
+        logging.info(f"Added creator_pay_addr to DB, "
+              f"we will send the token back to this address")
+        logging.info(creator_pay_addr)
+    else:
+        # FAIL
+        logging.info("Creator failed to send proper funds!")
+        return False
+
+    # Use policy keys to make policy file
+    # TODO Verify policy keys were made previously
+    policy_vkey = f'tmp/{session_uuid}-policy.vkey'
+    policy_script = f'tmp/{session_uuid}-policy.script'
+    policy_id = ''
+
+    policy_script_exists = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.policy_script_created).scalar() is not None
+
+    logging.info(policy_script_exists)
+    if policy_script_exists:
+        logging.info("Policy Script already created for session, skip.")
+    else:
+        # Building a token locking policy for NFT
+        policy_dict = {
+            "type": "all",
+            "scripts": [
+                {
+                    "keyHash": "",
+                    "type": "sig"
+                },
+                {
+                    "type": "before",
+                    "slot": 0
+                }
+            ]
+        }
+        # Generate policy key-hash
+        cmd = f"{config.CARDANO_CLI} address key-hash " \
+              f"--payment-verification-key-file {policy_vkey}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        response = str(out[0], 'UTF-8')
+        policy_keyhash = response.strip()
+        if policy_keyhash:
+            logging.info(f"Policy keyHash created: {policy_keyhash}")
+            token_data.policy_keyhash = policy_keyhash
+            session.add(token_data)
+            session.commit()
+        else:
+            logging.info("Policy keyHash failed to create")
+            return False
+
+        # Add keyHash and slot to dict
+        policy_dict["scripts"][0]["keyHash"] = policy_keyhash
+        policy_dict["scripts"][1]["slot"] = current_slot + slot_cushion
+
+        logging.info(f"Policy Dictionary for token: {policy_dict}")
+        # Write out the policy script to a file for later
+        policy_script_out = open(policy_script, "w+")
+        json.dump(policy_dict, policy_script_out)
+        policy_script_out.close()
+        token_data.policy_keys_created = True
+        session.add(token_data)
+        session.commit()
+
+        # Generate policy ID
+
+        cmd = f"{config.CARDANO_CLI} transaction policyid --script-file {policy_script}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        policy_id = str(out[0], 'UTF-8')
+        logging.info(f"Policy ID: {policy_id}")
+        token_data.policy_id = policy_id
+        session.add(token_data)
+        session.commit()
+
+    # Create Metadata
+
+    metadata_file = f'tmp/{session_uuid}-metadata.json'
+    meta_dict = {
+        "721": {
+            token_data.policy_id.strip(): {
+                f"{token_data.token_number}": {
+                    "image": f"ipfs://{token_data.token_ipfs_hash}",
+                    "ticker": token_data.token_ticker,
+                    "name": token_data.token_name,
+                    "description": token_data.token_desc,
+                }
+            }
+        }
+    }
+    # Write out the policy
+    metadata_out = open(metadata_file, "w+")
+    json.dump(meta_dict, metadata_out)
+    metadata_out.close()
+    logging.info("Created metadata.json")
+    token_data.metadata_created = True
+    session.add(token_data)
+    session.commit()
+
+    
