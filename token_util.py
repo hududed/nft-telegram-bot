@@ -7,7 +7,7 @@ import subprocess
 import time
 
 import config
-from db_model import Session, Tokens
+from create_db import Session, Tokens
 import logging
 logger = logging.getLogger(__name__)
 
@@ -275,7 +275,7 @@ def mint(**kwargs):
     tx_hash = utxo[0]
     tx_ix = int(utxo[1])
     available_lovelace = int(utxo[2])
-        if utxo:
+    if utxo:
         # Add UTXO data to DB
         token_data.utxo_tx_hash = utxo[0]
         token_data.utxo_tx_ix = utxo[1]
