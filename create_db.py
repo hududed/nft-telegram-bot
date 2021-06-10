@@ -33,6 +33,10 @@ class Tokens(Base):
     def __repr__(self):
         return f"{self.session_uuid} - {self.token_ticker}"
 
+    def update(self, **kwargs):
+        """ Updates a Token information  """
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 def main():
     """ Creates the DB with Token table """
