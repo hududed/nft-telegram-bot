@@ -114,4 +114,121 @@ def pre_mint(**kwargs):
             logging.info("FAIL: Something went wrong creating stake keys.")
             return False
 
+    # Create Payment keys
+    # Check to see if we ran this step already
+    payment_keys_created = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.payment_keys_created).scalar() is not None
+    if payment_keys_created:
+        logging.info("Payment Keys already created for session, skip.")
+        # return False
+    else:
+        logging.info("Create Payment keys")
+        payment_vkey_file = f'tmp/{session_uuid}-payment.vkey'
+        payment_skey_file = f'tmp/{session_uuid}-payment.skey'
+        cmd = f"{config.CARDANO_CLI} address key-gen " \
+              f"--verification-key-file {payment_vkey_file} " \
+              f"--signing-key-file {payment_skey_file}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        response = str(out[0], 'UTF-8')
+        if response == '':
+            logging.info("Payment keys created.")
+            token_data.payment_keys_created = True
+            session.add(token_data)
+            session.commit()
+        else:
+            # Payment keys are needed if we fail here we bail out
+            logging.info("FAIL: Something went wrong creating Payment keys.")
+            return False
 
+    # Create Payment Address
+    stake_keys_created = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.stake_keys_created).scalar() is not None
+
+    payment_keys_created = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.payment_keys_created).scalar() is not None
+
+    if stake_keys_created and payment_keys_created:
+        logging.info("Creating Bot Payment Address from stake and Payment keys.")
+        stake_vkey_file = f'tmp/{session_uuid}-stake.vkey'
+        payment_vkey_file = f'tmp/{session_uuid}-payment.vkey'
+        cmd = f"{config.CARDANO_CLI} address build " \
+              f"--payment-verification-key-file {payment_vkey_file} " \
+              f"--stake-verification-key-file {stake_vkey_file} " \
+              f"--testnet-magic {config.TESTNET_ID}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        response = str(out[0], 'UTF-8')
+        bot_payment_addr = response.strip()
+        logging.info(bot_payment_addr.strip())
+        token_data.bot_payment_addr = bot_payment_addr
+        session.add(token_data)
+        session.commit()
+    else:
+        logging.info(f"Either Stake Keys, or Payment Keys have not been created")
+        logging.info(f"Stake Keys: {stake_keys_created}")
+        logging.info(f"Payment Keys: {payment_keys_created}")
+        logging.info("FAIL: Something missing, can't move on.")
+        return False
+
+    # Get the blockchain protocol parameters
+    # Generally we only need this once and it should stay around
+    protocol_params = 'tmp/protocol.json'
+    protocol_params_exist = os.path.isfile(protocol_params)
+
+    protocol_params_created = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.protocol_params_created).scalar is not None
+
+    if protocol_params_exist and protocol_params_created:
+        logging.info("protocol_params_exist, no need to recreate")
+    else:
+        cmd = f"{config.CARDANO_CLI} query protocol-parameters " \
+              f"--testnet-magic {config.TESTNET_ID} " \
+              f"--out-file {protocol_params}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        response = str(out[0], 'UTF-8')
+        if response == '':
+            token_data.protocol_params_created = True
+            session.add(token_data)
+            session.commit()
+            logging.info("Saved protocol.json")
+        else:
+            logging.info("FAIL: Could not get protocol.json")
+            return False
+
+    # Create Policy Script
+    policy_vkey = f'tmp/{session_uuid}-policy.vkey'
+    policy_skey = f'tmp/{session_uuid}-policy.skey'
+
+    policy_keys_exist = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.policy_keys_created).scalar() is not None
+
+    if policy_keys_exist:
+        logging.info("Policy Keys already created for session, skip.")
+    else:
+        # Create Keys
+        cmd = f"{config.CARDANO_CLI} address key-gen " \
+              f"--verification-key-file {policy_vkey} " \
+              f"--signing-key-file {policy_skey}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        response = str(out[0], 'UTF-8')
+        if response == '':
+            logging.info("Policy keys created.")
+            token_data.policy_keys_created = True
+            session.add(token_data)
+            session.commit()
+        else:
+            # Policy keys are needed if we fail here we bail out
+            logging.info("FAIL: Something went wrong creating Policy keys.")
+            return False
+    # At this point we need the bot_payment_addr to have UTXO to burn
+    logging.info(f"Please deposit 5 ADA in the following address:")
+    logging.info(token_data.bot_payment_addr)
+    return True
