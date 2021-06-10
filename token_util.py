@@ -59,10 +59,10 @@ def get_tx_details(tx_hash):
         logging.info("Something failed here? blockfrost failed")
         return False
 
-def pre_mint(**kwargs):
+def before_mint(**kwargs):
     """ Sets up the token files and metadata
     User should provide all the details in dict """
-    logging.info(f"pre_mint started: \n {kwargs}")
+    logging.info(f"before_mint started: \n {kwargs}")
     session_uuid = kwargs.get('session_uuid')
 
     # Start DB Session
@@ -261,7 +261,7 @@ def mint(**kwargs):
     # Get current slot
     current_slot = get_current_slot()
 
-    slot_cushion = config.SLOT_CUSHION
+    slot_cushion = config.SLOT_BUFFER
     invalid_after_slot = current_slot + slot_cushion
     # Add to DB
     token_data.current_slot = current_slot

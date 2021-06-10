@@ -18,10 +18,10 @@ BLOCKFROST_IPFS = os.getenv('BLOCKFROST_IPFS')
 NFTSTORAGE = os.getenv('NFTSTORAGE')
 
 # Token
-TESTNET_ID = os.getenv('TESTNET_ID')
-CARDANO_CLI = "/Applications/Daedalus\ Testnet.app/Contents/MacOS/cardano-cli"
 BLOCKFROST_TESTNET = os.getenv('BLOCKFROST_TESTNET')
+CARDANO_CLI = "/Applications/Daedalus\ Testnet.app/Contents/MacOS/cardano-cli"
+TESTNET_ID = os.getenv('TESTNET_ID')
 
 # Misc
 # Set the buffer to 1 hour
-SLOT_CUSHION = 3600
+SLOT_BUFFER = 3600

@@ -11,7 +11,7 @@ import logging
 import config
 from create_db import Session, Tokens
 from ipfs_util import create_ipfs, pin_ipfs
-from token_util import pre_mint, mint, get_tx_details, check_wallet_utxo
+from token_util import before_mint, mint, get_tx_details, check_wallet_utxo
 
 logging.basicConfig(
     level=logging.INFO,
@@ -171,7 +171,7 @@ def put_token_number(update: Update, context: CallbackContext) -> int:
     update.message.reply_text('Type OK to start.')
     return PRE_MINT
 
-def put_pre_mint(update: Update, context: CallbackContext) -> int:
+def put_before_mint(update: Update, context: CallbackContext) -> int:
     """ Starts pre-minting a token, returns an address to send funds to """
     auth = update.message.text
     if auth.lower() == 'ok':
@@ -203,8 +203,8 @@ def put_pre_mint(update: Update, context: CallbackContext) -> int:
                 f'*token_ipfs_hash*: {nft_data["token_ipfs_hash"]} \n'
             )
             update.message.reply_text("Prepping the NFT metadata...")
-            pre_minted = pre_mint(**nft_data)
-            if pre_minted:
+            before_minted = before_mint(**nft_data)
+            if before_minted:
                 # Means we updated the DB and have a addr to send funds to
                 # Start DB Session to get addr
                 session = Session()
@@ -377,7 +377,7 @@ def main() -> None:
             NAME: [MessageHandler(Filters.text & ~Filters.command, put_token_name)],
             DESCRIPTION: [MessageHandler(Filters.text & ~Filters.command, put_token_desc)],
             NUMBER: [MessageHandler(Filters.text & ~Filters.command, put_token_number)],
-            PRE_MINT: [MessageHandler(Filters.text & ~Filters.command, put_pre_mint)]
+            PRE_MINT: [MessageHandler(Filters.text & ~Filters.command, put_before_mint)]
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
