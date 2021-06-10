@@ -27,6 +27,22 @@ class Tokens(Base):
         default=current_timestamp()
     )
 
+    # Token Bot Session UUID
+    session_uuid = Column(String())
+
+    # Creator Details
+    creator_username = Column(String())
+    creator_pay_addr = Column(String())
+
+    # Token Details
+    token_ticker = Column(String(5))
+    token_name = Column(String(128))
+    token_desc = Column(String(128))
+    token_number = Column(Integer, default=0)
+    # Added, maybe future use with generic Native Tokens..?
+    token_amount = Column(Integer, default=1)
+    token_ipfs_hash = Column(String(50))
+
     def __init__(self, session_uuid):
         self.session_uuid = session_uuid
 
