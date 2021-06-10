@@ -59,5 +59,59 @@ def get_tx_details(tx_hash):
         logging.info("Something failed here? blockfrost failed")
         return False
 
+def pre_mint(**kwargs):
+    """ Sets up the token files and metadata
+    User should provide all the details in dict """
+    logging.info(f"pre_mint started: \n {kwargs}")
+    session_uuid = kwargs.get('session_uuid')
+
+    # Start DB Session
+    session = Session()
+
+    # Check to see if session already exists
+    sesh_exists = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).scalar() is not None
+    if sesh_exists:
+        token_data = session.query(Tokens).filter(
+            Tokens.session_uuid == session_uuid).one()
+        logging.info(f'Session already exists {token_data}')
+    else:
+        # No token session yet, add the data
+        logging.info(f"New Session {session_uuid}")
+        token_data = Tokens(session_uuid=session_uuid)
+        token_data.update(**kwargs)
+        session.add(token_data)
+        session.commit()
+
+    # ### Start the actual minting process ###
+    logging.info("Setting up the token data")
+
+    # Create Stake keys
+    # Check to see if we ran this step already
+    stake_keys_created = session.query(Tokens).filter(
+        Tokens.session_uuid == session_uuid).filter(
+        Tokens.stake_keys_created).scalar() is not None
+    if stake_keys_created:
+        logging.info("Stake Keys already created for session, skip.")
+        # return False
+    else:
+        logging.info("Create Stake keys")
+        stake_vkey_file = f'tmp/{session_uuid}-stake.vkey'
+        stake_skey_file = f'tmp/{session_uuid}-stake.skey'
+        cmd = f"{config.CARDANO_CLI} stake-address key-gen " \
+              f"--verification-key-file {stake_vkey_file} " \
+              f"--signing-key-file {stake_skey_file}"
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        out = proc.communicate()
+        response = str(out[0], 'UTF-8')
+        if response == '':
+            logging.info("Stake keys created.")
+            token_data.stake_keys_created = True
+            session.add(token_data)
+            session.commit()
+        else:
+            # Stake keys are needed if we fail here we bail out
+            logging.info("FAIL: Something went wrong creating stake keys.")
+            return False
 
 
