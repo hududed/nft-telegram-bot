@@ -63,6 +63,17 @@ class Tokens(Base):
     # Token metadata.json
     metadata_created = Column(Boolean, default=False)
 
+    # UTXO to burn from bot payment_addr
+    utxo_tx_hash = Column(String(64))
+    utxo_tx_ix = Column(Integer)
+    utxo_lovelace = Column(Integer)
+
+    # Mint Transaction
+    raw_tx_created = Column(Boolean, default=False)
+    signed_tx_created = Column(Boolean, default=False)
+    tx_submitted = Column(Boolean, default=False)
+    token_tx_hash = Column(String(64))
+
     def __init__(self, session_uuid):
         self.session_uuid = session_uuid
 
