@@ -43,6 +43,26 @@ class Tokens(Base):
     token_amount = Column(Integer, default=1)
     token_ipfs_hash = Column(String(50))
 
+    # Stake Keys and Payment Keys
+    stake_keys_created = Column(Boolean, default=False)
+    payment_keys_created = Column(Boolean, default=False)
+
+    # The bot ADA address for funding
+    bot_payment_addr = Column(String(128))
+
+    protocol_params_created = Column(Boolean, default=False)
+
+    policy_keys_created = Column(Boolean, default=False)
+    policy_script_created = Column(Boolean, default=False)
+    policy_keyhash = Column(String(64))
+    policy_id = Column(String(64))
+    current_slot = Column(Integer)
+    slot_cushion = Column(Integer)
+    invalid_after_slot = Column(Integer)
+
+    # Token metadata.json
+    metadata_created = Column(Boolean, default=False)
+
     def __init__(self, session_uuid):
         self.session_uuid = session_uuid
 
