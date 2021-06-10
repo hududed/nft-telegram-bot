@@ -390,4 +390,139 @@ def mint(**kwargs):
     session.add(token_data)
     session.commit()
 
-    
+    matx_raw = f'tmp/{session_uuid}-matx.raw'
+    # Build Raw TX
+    tx_fee = 0
+    cmd = f'{config.CARDANO_CLI} transaction build-raw ' \
+          f'--fee {tx_fee} ' \
+          f'--tx-in {tx_hash}#{tx_ix} ' \
+          f'--tx-out {token_data.creator_pay_addr}+{available_lovelace}+"{token_data.token_amount} {token_data.policy_id.strip()}.{token_data.token_ticker}" ' \
+          f'--mint="{token_data.token_amount} {token_data.policy_id.strip()}.{token_data.token_ticker}" ' \
+          f'--metadata-json-file {metadata_file} ' \
+          f'--invalid-hereafter={invalid_after_slot} ' \
+          f'--out-file {matx_raw}'
+
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    # Command does not return anything
+    out = proc.communicate()
+    if out[1] is None:
+        logging.info(out)
+        logging.info("Raw transaction created")
+        token_data.raw_tx_created = True
+        session.add(token_data)
+        session.commit()
+    else:
+        logging.info(out)
+        logging.info('Something failed on building the transaction')
+        return False
+
+    # Calculate Fee [or hard set to 3 ADA]
+    protocol_params = 'tmp/protocol.json'
+    cmd = f"{config.CARDANO_CLI} transaction calculate-min-fee " \
+          f"--tx-body-file {matx_raw} " \
+          f"--tx-in-count 1 " \
+          f"--tx-out-count 1 " \
+          f"--witness-count 1 " \
+          f"--testnet-magic {config.TESTNET_ID} " \
+          f"--protocol-params-file {protocol_params}"
+
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    out = proc.communicate()
+    response = str(out[0], 'UTF-8').split()
+    # calculate-fee always seems low in testnet
+    # Add 100 Lovelace for reasons ???
+    tx_fee = int(response[0]) + 100
+
+    logging.info(f'The TX fee today: {tx_fee}')
+    # Build TX with Fees
+
+    matx_raw = f'tmp/{session_uuid}-real-matx.raw'
+    # Build Raw TX
+    ada_return = available_lovelace - tx_fee
+    logging.info(f"Return this much plus token back to the "
+          f"original funder: {ada_return} lovelace")
+    cmd = f'{config.CARDANO_CLI} transaction build-raw ' \
+          f'--fee {tx_fee} ' \
+          f'--tx-in {tx_hash}#{tx_ix} ' \
+          f'--tx-out {token_data.creator_pay_addr}+{ada_return}+"{token_data.token_amount} {token_data.policy_id.strip()}.{token_data.token_ticker}" ' \
+          f'--mint="{token_data.token_amount} {token_data.policy_id.strip()}.{token_data.token_ticker}" ' \
+          f'--metadata-json-file {metadata_file} ' \
+          f'--invalid-hereafter={invalid_after_slot} ' \
+          f'--out-file {matx_raw}'
+
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    # Command does not return anything
+    out = proc.communicate()
+
+    if out[1] is None:
+        logging.info(out)
+        logging.info("Real Raw transaction created")
+    else:
+        logging.info(out)
+        logging.info('Something failed on building the real transaction')
+        return False
+
+    # Sign TX
+    payment_skey_file = f'tmp/{session_uuid}-payment.skey'
+    policy_skey = f'tmp/{session_uuid}-policy.skey'
+
+    matx_signed = f'tmp/{session_uuid}-matx.signed'
+    cmd = f"{config.CARDANO_CLI} transaction sign " \
+          f"--signing-key-file {payment_skey_file} " \
+          f"--signing-key-file {policy_skey} " \
+          f"--script-file {policy_script} " \
+          f"--testnet-magic {config.TESTNET_ID} " \
+          f"--tx-body-file {matx_raw} " \
+          f"--out-file {matx_signed}"
+
+
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    # Command does not return anything
+    out = proc.communicate()
+    if out[1] is None:
+        logging.info(out)
+        logging.info("Transaction signed")
+        token_data.signed_tx_created = True
+        session.add(token_data)
+        session.commit()
+    else:
+        logging.info(out)
+        logging.info('Something failed on Transaction signing')
+        return False
+
+    # Send to Blockchain
+    cmd = f"{config.CARDANO_CLI} transaction submit " \
+          f"--tx-file  {matx_signed} " \
+          f"--testnet-magic {config.TESTNET_ID}"
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    # Command does not return anything
+    out = proc.communicate()
+    if out[1] is None:
+        logging.info(out)
+        logging.info("Transaction Submitted")
+        token_data.tx_submitted = True
+        session.add(token_data)
+        session.commit()
+    else:
+        logging.info(out)
+        logging.info('Something failed on Transaction Submitted')
+        return False
+
+    # Verify Sent
+    confirmed = False
+    while confirmed is False:
+        creator_utxo = check_wallet_utxo(token_data.creator_pay_addr)
+        if creator_utxo:
+            # Sleep while wait for BlockFrost to pick up TX
+            time.sleep(5)
+            nft_tx_details = get_tx_details(creator_utxo[0])
+            logging.info(nft_tx_details)
+            # Done with minting
+            token_data.token_tx_hash = creator_utxo[0]
+            session.add(token_data)
+            session.commit()
+            return True
+        confirmed = False
+        # Sleep for 5 sec, blocks are 20 seconds
+        # so we should get a confirmation in 4 tries
+        time.sleep(5)
